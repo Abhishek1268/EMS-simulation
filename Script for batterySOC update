@@ -1,0 +1,38 @@
+function [unclampedSoC, batterySoC] = update_soc(pvToBattery, gridToBattery, batteryToLoad, batteryToEV, batterySoC_prev, timeStep)
+    % Inputs:
+    %   pvToBattery, gridToBattery, batteryPower: Power (kW) from dispatch logic
+    %   batterySoC_prev: Previous SoC (%)
+    %   timeStep: Simulation time step (seconds)
+
+    % Battery parameters (consistent with dispatch logic)
+    batteryCapacity = 10; % kWh
+    batteryMinSoC = 20; % %
+    batteryMaxSoC = 90; % %
+    chargeEfficiency = 0.95; % Charging efficiency
+    dischargeEfficiency = 0.90; % Discharging efficiency (adjust as needed)
+
+    % Initialize SoC
+    batterySoC = batterySoC_prev;
+
+    % Total power affecting battery (negative = charging, positive = discharging)
+    total_charge_power = pvToBattery + gridToBattery - batteryToLoad - batteryToEV; % kW
+
+    % Convert time step to hours
+    time_step_hours = timeStep / 3600; % hours (e.g., 3600 s = 1 hour)
+
+    % Calculate energy change with efficiency
+    if total_charge_power < 0
+        % Charging (apply charge efficiency)
+        energy_change = -total_charge_power * time_step_hours * chargeEfficiency; % kWh
+    else
+        % Discharging (apply discharge efficiency)
+        energy_change = -total_charge_power * time_step_hours / dischargeEfficiency; % kWh
+    end
+
+    % SoC change (%)
+    soc_change = (energy_change / batteryCapacity) * 100; % %
+
+    % Update SoC and clamp between minSoC and maxSoC
+    unclampedSoC = batterySoC_prev + soc_change; % Theoretical SoC
+    batterySoC = max(batteryMinSoC, min(batteryMaxSoC, batterySoC + soc_change));
+end
