@@ -1,0 +1,118 @@
+function [gridPower, pvToLoad, pvToGrid, pvToBattery, batteryToLoad, pvToEV, gridToEV, evPower, unmetLoad] = ...
+    dispatchLogic(pvPower, loadDemand, evSoC, evDepartureTime, currentTime, evConnected, evTargetSoC, batterySoC, enableBattery, enableEV)
+
+% Initialize outputs with default values
+batteryToLoad = 0;
+pvToBattery = 0;
+pvToLoad = 0;
+gridPower = 0;
+unmetLoad = 0;
+evPower = 0;
+pvToEV = 0;
+gridToEV = 0;
+pvToGrid = 0; % Initialize pvToGrid
+
+% Battery parameters
+batteryMinSoC = 20;
+batteryMaxSoC = 90;
+batteryCapacity = 10;  % kWh (adjust to your battery size)
+batteryMaxDischarge = 2;  % kW
+batteryMaxCharge = 1.5;     % kW
+maxGridPower = 25; % Household grid limit (adjust based on your setup)
+timeStep = 3600;
+dischargeEfficiency = 0.90;
+
+
+% EV parameters
+evCapacity = 60; % kWh
+evMaxChargePower = 7; % kW
+evChargeEfficiency = 0.95;
+evMinSoC = 20; % %
+evMaxSoC = 80; % %
+
+
+% PV size (used for capping)
+maxPVPower = 10; % Example maximum PV power limit
+
+% Ensure inputs are non-negative and valid
+pvPower = max(0, double(pvPower)); % Force scalar
+pvPower = min(pvPower, maxPVPower); % Cap pvPower
+loadDemand = max(0, double(loadDemand));
+batterySoC = max(batteryMinSoC, min(batteryMaxSoC, double(batterySoC(1))));
+evSoC = max(20, min(80, double(evSoC))); % Bound EV SoC
+evConnected = double(evConnected); % 0 or 1
+evTargetSoC = max(20, min(80, double(evTargetSoC))); % Bound target SoC
+evDepartureTime = double(evDepartureTime(1));
+currentTime = double(currentTime(1));
+enableBattery = double(enableBattery(1)); % 0 = disabled, 1 = enabled
+enableEV = double(enableEV(1)); % 0 = disabled, 1 = enabled
+
+
+% Calculate EV charging demand if connected
+evChargeDemand = 0;
+if evConnected && enableEV
+    energyNeeded = (evTargetSoC - evSoC) / 100 * evCapacity / evChargeEfficiency; % kWh
+    timeToDeparture = (evDepartureTime - currentTime) / 3600; % Hours
+    if timeToDeparture > 0
+        evChargeDemand = min(evMaxChargePower, energyNeeded / (timeToDeparture + eps)); % kW
+    else
+        evChargeDemand = evMaxChargePower; % Charge as fast as possible
+    end
+else
+    evChargeDemand = 0;
+end
+
+% Simple power allocation (no EMS logic)
+pvToLoad = min(pvPower, loadDemand); % All PV goes to load up to demand
+remainingLoad = loadDemand - pvToLoad;
+excessPV = pvPower - pvToLoad; % Excess PV after meeting load
+
+%% --- Unified Battery Discharge Block ---
+batteryDischarged = false;
+discharge_limit = (batterySoC - batteryMinSoC)/100 * batteryCapacity / (timeStep/3600) / dischargeEfficiency;
+
+% Battery-to-Load to serve remaining load if SoC > min
+if remainingLoad > 0 && enableBattery
+    batteryToLoad = -min([remainingLoad, batteryMaxDischarge, discharge_limit]);
+    remainingLoad = remainingLoad - abs(batteryToLoad);
+    remainingLoad = max(0, min(remainingLoad, loadDemand)); % Cap remaining load by original demand
+    % Decrement the available SoC-based discharge limit
+end
+
+% PV-to-Battery with excess PV if below max SoC
+if ~batteryDischarged && excessPV > 0 && enableBattery
+    charge_limit = (batteryMaxSoC - batterySoC)/100 * batteryCapacity / (timeStep/3600);
+    pvToBattery = -min([excessPV, batteryMaxCharge, charge_limit]);
+    excessPV = excessPV - abs(pvToBattery);
+end
+
+% PV-to-EV with excess PV if demand exists
+if excessPV > 0 && evChargeDemand > 0 && evConnected && enableEV
+    evChargeLimit = ((evMaxSoC - evSoC) / 100) * evCapacity / (timeStep / 3600);
+    pvToEV = -min([excessPV, evMaxChargePower, evChargeDemand, evChargeLimit]);
+    excessPV = excessPV - abs(pvToEV); % pvToEV is negative
+    evPower = abs(pvToEV); % Positive value for EV power input
+    evChargeDemand = evChargeDemand - abs(pvToEV);
+end
+
+% Grid-to-EV for EV demand
+if evConnected && evChargeDemand > 0 && gridPower < maxGridPower && enableEV
+    % Calculate EV charge limit based on available grid power and max charge rate
+    evChargeLimit = min(min((maxGridPower - gridPower), evMaxChargePower), evChargeDemand);
+    gridToEV = -evChargeLimit; % Negative value indicates charging power
+    gridPower = gridPower + abs(gridToEV); % Update grid power with positive increment (corrected)
+    evPower = evPower + abs(gridToEV); % Positive value for EV power input
+    evChargeDemand = evChargeDemand - abs(gridToEV);
+end
+
+% Grid covers remaining load if any
+remainingLoad = loadDemand - pvToLoad;
+if remainingLoad > 0
+    gridPower = gridPower + remainingLoad; % Add grid power for remaining load
+end
+unmetLoad = 0; % Assume grid covers all deficits
+
+% Calculate pvToGrid (excess PV after load and EV)
+pvToGrid = max(0, excessPV - abs(pvToEV)); % Remaining PV exported to grid
+
+end
