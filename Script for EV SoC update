@@ -1,0 +1,45 @@
+function updatedEvSoC = updateEvSoC(evSoC_initial, evConnected, evPower, evConnected_prev)
+%#codegen
+
+% Parameters
+evCapacity = 60; % kWh
+evChargeEfficiency = 0.95;
+evMinSoC = 20; % %
+evMaxSoC = 80; % %
+timeStep = 3600; % seconds
+
+% Persistent variables
+persistent lastEvSoC evSoC_current;
+if isempty(lastEvSoC)
+    lastEvSoC = evMinSoC; % Initialize to minimum SoC
+    evSoC_current = evMinSoC;
+end
+
+% Ensure inputs are valid
+evSoC_initial = max(evMinSoC, min(evMaxSoC, double(evSoC_initial)));
+evConnected = double(evConnected);
+evPower = max(0, double(evPower));
+evConnected_prev = double(evConnected_prev);
+
+% Detect plug-in event and update
+if evConnected == 1
+    if evConnected_prev == 0
+        % Just plugged in: initialize SoC
+        evSoC_current = evSoC_initial;
+    end
+    % Always process charging if power present
+    if evPower > 0
+        evEnergyChange = evPower * evChargeEfficiency * (timeStep / 3600); % kWh
+        evSoC_current = evSoC_current + (evEnergyChange / evCapacity * 100); % %
+        evSoC_current = max(evMinSoC, min(evMaxSoC, evSoC_current));
+    end
+    lastEvSoC = evSoC_current;
+else
+    % Not connected: hold last value
+    evSoC_current = lastEvSoC;
+end
+% Debug output using fprintf with newline (only valid variables)
+%fprintf('evConnected: %f evPower: %f updatedEvSoC: %f\n', evConnected, evPower, evSoC_current);
+
+updatedEvSoC = evSoC_current;
+end
