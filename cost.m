@@ -329,7 +329,10 @@ initial_investment = pv_cost_per_kw * pv_capacity + inverter_cost + installation
 if enableBattery
     initial_investment = initial_investment + battery_cost_per_kwh * battery_capacity;
 end
-
+initial_investment_no_ems = pv_cost_per_kw * pv_capacity + inverter_cost + installation_cost;
+if enableBattery
+    initial_investment_no_ems = initial_investment_no_ems + battery_cost_per_kwh * battery_capacity;
+end
 
 %%------------------------------------Dynamic------------------------------------%%
 
@@ -523,7 +526,7 @@ total_revenue_pv_storage_no_ems = pv_to_load_savings_no_ems + pv_to_battery_savi
                                    pv_to_ev_savings_no_ems;
 
 net_profit_pv_storage_annual_no_ems = total_revenue_pv_storage_no_ems - op_cost_pv_storage_no_ems;
-roi_pv_storage_annual_no_ems = (net_profit_pv_storage_annual_no_ems / initial_investment) * 100;
+roi_pv_storage_annual_no_ems = (net_profit_pv_storage_annual_no_ems / initial_investment_no_ems) * 100;
 
 %%------------------------------------Life-time------------------------------------%%
 
@@ -730,11 +733,11 @@ if enableBattery
 else
     net_profit_lifetime_no_ems = sum(net_profit_no_ems);
 end
-roi_no_ems = (net_profit_lifetime_no_ems / initial_investment) * 100;
+roi_no_ems = (net_profit_lifetime_no_ems / initial_investment_no_ems) * 100;
 
 % payback period
 cumulative_profit_no_ems = cumsum(net_profit_no_ems);
-payback_period_no_ems = find(cumulative_profit_no_ems >= initial_investment, 1);
+payback_period_no_ems = find(cumulative_profit_no_ems >= initial_investment_no_ems, 1);
 
 if isempty(payback_period_no_ems)
     payback_period_no_ems = Inf;
@@ -749,7 +752,7 @@ end
 
 %% Exporting Financial Summary to CSV and XLSX
 parameters = {
-    'Initial Investment (PV+Storage) (€)', initial_investment, initial_investment, initial_investment;
+    'Initial Investment (PV+Storage) (€)', initial_investment, initial_investment, initial_investment_no_ems;
     '[BOLD] Expenses', '', '', '';
     'Grid Purchase Cost Year 1 (€)', grid_purchase_cost_dynamic, grid_purchase_cost_static, grid_purchase_cost_no_ems;
     'Grid Charging Cost Year 1 (€)', grid_charge_cost_dynamic, grid_charge_cost_static, grid_charge_cost_no_ems;
